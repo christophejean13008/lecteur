@@ -1,0 +1,1899 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Lisible — transformer un document en texte lisible</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/lexend@5.3.0/400.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/lexend@5.3.0/600.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/opendyslexic@5.3.0/index.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/andika@5.3.0/index.css">
+
+<style>
+/* ---------------------------------------------------------------
+   Lisible — fichier unique, tout côté client.
+   Chrome sombre « ardoise » volontairement discret :
+   la seule surface qui a le droit d'être forte, c'est le texte lu.
+   --------------------------------------------------------------- */
+
+:root{
+  --ardoise:#22343C;
+  --ardoise-2:#2C434D;
+  --ardoise-3:#3A5560;
+  --craie:#E6E9E4;
+  --craie-faible:#9FB0B6;
+  --signal:#E8B33C;
+  --teal:#63B0C4;
+  --danger:#D97066;
+  --rayon:10px;
+
+  /* réglages du texte lu (pilotés par le JS) */
+  --f:'OpenDyslexic', Verdana, sans-serif;
+  --fs:26px;
+  --lh:2;
+  --ls:0.06em;
+  --ws:0.32em;
+  --pg:1.4em;
+  --cw:46ch;
+  --fg:#1C1B19;
+  --bg:#FBF6E9;
+
+  /* réglages du résumé */
+  --rf:'OpenDyslexic', Verdana, sans-serif;
+  --rfs:24px;
+  --rfg:#1C1B19;
+  --rbg:#EAF2F4;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  font-family:'Lexend',system-ui,-apple-system,sans-serif;
+  background:var(--ardoise);
+  color:var(--craie);
+  -webkit-text-size-adjust:100%;
+  overflow:hidden;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--signal);outline-offset:2px;border-radius:4px}
+
+/* ---------- ossature ---------- */
+.app{display:grid;grid-template-columns:320px 1fr;grid-template-rows:auto 1fr;height:100%}
+
+header{
+  grid-column:1/-1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 16px;background:var(--ardoise);border-bottom:1px solid var(--ardoise-3);
+  padding-top:max(10px,env(safe-area-inset-top));
+}
+.marque{font-weight:600;font-size:17px;letter-spacing:.01em;margin-right:6px}
+.marque span{display:block;font-weight:400;font-size:11.5px;color:var(--craie-faible);letter-spacing:0}
+.sep{flex:1}
+
+.btn{
+  display:inline-flex;align-items:center;gap:7px;
+  background:var(--ardoise-2);border:1px solid var(--ardoise-3);color:var(--craie);
+  padding:9px 13px;border-radius:var(--rayon);cursor:pointer;font-size:14px;
+  transition:background .12s ease, border-color .12s ease;
+}
+.btn:hover:not(:disabled){background:var(--ardoise-3)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.fort{background:var(--signal);color:#231B08;border-color:var(--signal);font-weight:600}
+.btn.fort:hover:not(:disabled){background:#F2C25A}
+.btn.actif{border-color:var(--signal);color:var(--signal)}
+.btn svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ---------- rail de réglages ---------- */
+.rail{
+  background:var(--ardoise);border-right:1px solid var(--ardoise-3);
+  overflow-y:auto;padding:4px 0 40px;-webkit-overflow-scrolling:touch;
+}
+.bloc{border-bottom:1px solid var(--ardoise-2);padding:14px 16px}
+.bloc h2{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--craie-faible)}
+.champ{margin-bottom:13px}
+.champ:last-child{margin-bottom:0}
+.champ label{display:flex;justify-content:space-between;align-items:baseline;font-size:13px;margin-bottom:5px;color:var(--craie)}
+.champ label b{font-weight:400;color:var(--craie-faible);font-variant-numeric:tabular-nums;font-size:12px}
+select,input[type=text]{
+  width:100%;background:var(--ardoise-2);border:1px solid var(--ardoise-3);
+  border-radius:8px;padding:8px 9px;font-size:14px;
+}
+input[type=range]{width:100%;accent-color:var(--signal);margin:0}
+input[type=color]{
+  width:100%;height:34px;padding:0;border:1px solid var(--ardoise-3);
+  border-radius:8px;background:var(--ardoise-2);cursor:pointer;
+}
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.bascule{display:flex;align-items:center;gap:10px;font-size:13.5px;padding:5px 0;cursor:pointer}
+.bascule input{width:18px;height:18px;accent-color:var(--signal);flex:none;margin:0}
+.aide{font-size:11.5px;color:var(--craie-faible);line-height:1.45;margin:6px 0 0}
+.papiers{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+.papiers button{width:30px;height:30px;border-radius:50%;border:2px solid var(--ardoise-3);cursor:pointer;padding:0}
+.papiers button[aria-pressed=true]{border-color:var(--signal)}
+
+/* ---------- zone de lecture ---------- */
+.scene{position:relative;overflow:hidden;background:var(--bg);display:flex;flex-direction:column}
+.barre{
+  display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px 16px;
+  background:rgba(0,0,0,.045);
+  background:color-mix(in srgb, var(--bg) 80%, #000 6%);
+  border-bottom:1px solid rgba(0,0,0,.09);color:#2A2A28;position:relative;z-index:3;
+}
+.barre .btn{background:rgba(255,255,255,.62);border-color:rgba(0,0,0,.14);color:#2A2A28}
+.barre .btn:hover:not(:disabled){background:#fff}
+.barre .btn.fort{background:var(--ardoise);color:var(--craie);border-color:var(--ardoise)}
+.barre .btn.fort:hover:not(:disabled){background:var(--ardoise-2)}
+.etat{font-size:12.5px;color:#5B5B55}
+
+.defile{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative;padding:36px 24px 45vh}
+
+#lecture{
+  margin:0 auto;max-width:var(--cw);
+  font-family:var(--f);font-size:var(--fs);line-height:var(--lh);
+  letter-spacing:var(--ls);word-spacing:var(--ws);
+  color:var(--fg);text-align:left;hyphens:none;
+}
+#lecture p{margin:0 0 var(--pg)}
+#lecture p:last-child{margin-bottom:0}
+.ph.alt{color:#2C5A6B}
+.ph.alt{color:color-mix(in srgb, var(--fg) 72%, var(--teal) 55%)}
+.mot{border-radius:5px;padding:0 .04em}
+.mot.dit{background:var(--signal);color:#231B08;box-shadow:0 0 0 .1em var(--signal)}
+.ph.dite{background:rgba(232,179,60,.26);background:color-mix(in srgb, var(--signal) 26%, transparent);border-radius:6px}
+.syl0{color:var(--syA,inherit)}
+.syl1{color:var(--syB,inherit)}
+.syl2{color:var(--syC,inherit)}
+.syl3{color:var(--syD,inherit)}
+.muet{opacity:.32}
+
+/* règle de lecture */
+.regle{
+  position:absolute;left:0;right:0;height:2.2em;pointer-events:none;display:none;
+  box-shadow:0 -140vh rgba(10,12,14,.42), 0 140vh rgba(10,12,14,.42);
+  border-top:2px solid rgba(232,179,60,.85);border-bottom:2px solid rgba(232,179,60,.85);
+  z-index:2;
+}
+.scene.regle-on .regle{display:block}
+
+/* accueil / import */
+.accueil{max-width:52ch;margin:0 auto;text-align:left}
+.accueil .demo{
+  font-family:var(--f);font-size:var(--fs);line-height:var(--lh);
+  letter-spacing:var(--ls);word-spacing:var(--ws);color:var(--fg);
+  border-left:3px solid rgba(0,0,0,.14);padding-left:.7em;margin-bottom:34px;
+}
+.accueil h1{font-family:'Lexend',sans-serif;font-size:19px;font-weight:600;color:#2A2A28;margin:0 0 6px}
+.accueil p.intro{font-family:'Lexend',sans-serif;font-size:14px;line-height:1.6;color:#57574F;margin:0 0 20px;max-width:44ch}
+.entrees{display:flex;gap:10px;flex-wrap:wrap}
+.entrees .btn{background:var(--ardoise);color:var(--craie);border-color:var(--ardoise);padding:12px 16px}
+.entrees .btn:hover{background:var(--ardoise-2)}
+.entrees .btn.calme{background:rgba(255,255,255,.6);color:#2A2A28;border-color:rgba(0,0,0,.16)}
+.entrees .btn.calme:hover{background:#fff}
+
+/* résumé */
+.resume{
+  max-width:var(--cw);margin:44px auto 0;background:var(--rbg);color:var(--rfg);
+  border-radius:14px;padding:22px 24px;
+}
+.resume .titre{
+  font-family:'Lexend',sans-serif;font-size:12.5px;font-weight:600;
+  color:var(--rfg);color:color-mix(in srgb, var(--rfg) 62%, transparent);margin:0 0 12px;
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+}
+.resume .corps{
+  font-family:var(--rf);font-size:var(--rfs);line-height:var(--lh);
+  letter-spacing:var(--ls);word-spacing:var(--ws);
+}
+.resume .corps p{margin:0 0 .7em}
+.resume .corps p:last-child{margin-bottom:0}
+.cles{display:flex;gap:6px;flex-wrap:wrap;margin-top:16px}
+.cles span{
+  font-family:'Lexend',sans-serif;font-size:12px;padding:4px 10px;border-radius:99px;
+  background:rgba(0,0,0,.07);background:color-mix(in srgb, var(--rfg) 10%, transparent);
+}
+.resume .mini{
+  background:none;border:1px solid rgba(0,0,0,.25);border:1px solid color-mix(in srgb, var(--rfg) 30%, transparent);
+  color:inherit;border-radius:8px;padding:4px 9px;font-size:12px;cursor:pointer;
+  font-family:'Lexend',sans-serif;
+}
+
+/* correction */
+dialog{
+  border:none;border-radius:16px;padding:0;max-width:min(760px,94vw);width:100%;
+  background:var(--ardoise);color:var(--craie);
+}
+dialog::backdrop{background:rgba(8,12,14,.62)}
+.dlg-h{padding:18px 20px 0}
+.dlg-h h3{margin:0 0 4px;font-size:16px;font-weight:600}
+.dlg-h p{margin:0;font-size:13px;color:var(--craie-faible);line-height:1.5}
+dialog textarea{
+  display:block;width:calc(100% - 40px);margin:16px 20px;height:46vh;resize:vertical;
+  background:#FBF6E9;color:#1C1B19;border:none;border-radius:10px;padding:14px;
+  font-family:ui-monospace,Menlo,monospace;font-size:14px;line-height:1.65;
+}
+.dlg-f{display:flex;gap:10px;justify-content:flex-end;padding:0 20px 18px;flex-wrap:wrap}
+
+/* progression */
+.progres{
+  position:absolute;inset:0;background:rgba(20,28,32,.9);color:var(--craie);
+  display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:9;
+  font-size:14px;text-align:center;padding:24px;
+}
+.progres.on{display:flex}
+.jauge{width:min(300px,70vw);height:5px;background:var(--ardoise-3);border-radius:99px;overflow:hidden}
+.jauge i{display:block;height:100%;width:0;background:var(--signal);transition:width .25s ease}
+
+/* profils */
+.profils{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.profil{display:flex;align-items:center;gap:6px}
+.profil .nom{
+  flex:1;text-align:left;background:var(--ardoise-2);border:1px solid var(--ardoise-3);
+  border-radius:8px;padding:7px 10px;cursor:pointer;font-size:13.5px;
+}
+.profil .nom:hover{background:var(--ardoise-3)}
+.profil .sup{background:none;border:none;color:var(--craie-faible);cursor:pointer;padding:6px;font-size:15px;line-height:1}
+.profil .sup:hover{color:var(--danger)}
+
+/* mobile / iPad portrait */
+.voletbtn{display:none}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr}
+  .rail{
+    position:fixed;top:0;bottom:0;left:0;width:min(340px,88vw);z-index:20;
+    transform:translateX(-102%);transition:transform .22s ease;
+    box-shadow:0 0 40px rgba(0,0,0,.45);padding-top:max(12px,env(safe-area-inset-top));
+  }
+  .rail.ouvert{transform:none}
+  .voletbtn{display:inline-flex}
+  .defile{padding:26px 18px 40vh}
+  .marque span{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none !important;scroll-behavior:auto !important}}
+
+/* atelier photo */
+.atelier{display:grid;grid-template-columns:1fr 240px;gap:16px;padding:16px 20px}
+.apercu{position:relative;line-height:0;background:#11181C;border-radius:10px;overflow:hidden;align-self:start;touch-action:none;cursor:crosshair}
+.apercu canvas{width:100%;height:auto;display:block}
+.cadre{position:absolute;border:2px solid var(--signal);box-shadow:0 0 0 9999px rgba(10,14,16,.55);cursor:move}
+.cadre i{position:absolute;width:24px;height:24px;background:var(--signal);border-radius:50%;border:2px solid #11181C}
+.cadre i[data-c=nw]{left:-13px;top:-13px;cursor:nwse-resize}
+.cadre i[data-c=ne]{right:-13px;top:-13px;cursor:nesw-resize}
+.cadre i[data-c=se]{right:-13px;bottom:-13px;cursor:nwse-resize}
+.cadre i[data-c=sw]{left:-13px;bottom:-13px;cursor:nesw-resize}
+.outils .champ label{color:var(--craie)}
+.outils .btn{width:100%;justify-content:center;margin-bottom:8px}
+.nav{display:flex;align-items:center;gap:8px;justify-content:space-between;margin-bottom:12px}
+.nav .btn{width:auto;margin:0;padding:7px 11px}
+.nav span{font-size:13px;color:var(--craie-faible)}
+@media (max-width:760px){
+  .atelier{grid-template-columns:1fr}
+  dialog{max-height:92vh;overflow-y:auto}
+}
+
+/* impression */
+@media print{
+  body{overflow:visible;background:#fff}
+  .app{display:block;height:auto}
+  header,.rail,.barre,.regle,.progres{display:none !important}
+  .scene{background:#fff;display:block;overflow:visible}
+  .defile{overflow:visible;padding:0;height:auto}
+  #lecture,.resume{max-width:100%;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .resume{page-break-inside:avoid;margin-top:24px}
+  .resume .mini{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <button class="btn voletbtn" id="bVolet" aria-label="Afficher les réglages">
+      <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg> Réglages
+    </button>
+    <div class="marque">Lisible<span>Un document, un texte qui se lit</span></div>
+    <div class="sep"></div>
+    <button class="btn" id="bCorriger" disabled>
+      <svg viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg> Corriger le texte
+    </button>
+    <button class="btn" id="bImprimer" disabled>
+      <svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg> Imprimer
+    </button>
+    <button class="btn" id="bVider" disabled>
+      <svg viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg> Nouveau
+    </button>
+  </header>
+
+  <!-- ============ RAIL DE RÉGLAGES ============ -->
+  <aside class="rail" id="rail">
+
+    <div class="bloc">
+      <h2>Police et taille</h2>
+      <div class="champ">
+        <label for="cPolice">Police</label>
+        <select id="cPolice"></select>
+        <p class="aide" id="aidePolice">OpenDyslexic alourdit le bas des lettres pour éviter les retournements. Luciole apparaît si elle est installée sur l'appareil.</p>
+      </div>
+      <div class="champ">
+        <label for="cTaille">Taille <b id="vTaille"></b></label>
+        <input type="range" id="cTaille" min="14" max="72" step="1">
+      </div>
+      <div class="champ">
+        <label for="cGras">Graisse</label>
+        <select id="cGras">
+          <option value="400">Normale</option>
+          <option value="700">Grasse</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="bloc">
+      <h2>Espacement</h2>
+      <div class="champ">
+        <label for="cInterligne">Entre les lignes <b id="vInterligne"></b></label>
+        <input type="range" id="cInterligne" min="1" max="3.5" step="0.05">
+      </div>
+      <div class="champ">
+        <label for="cLettres">Entre les lettres <b id="vLettres"></b></label>
+        <input type="range" id="cLettres" min="0" max="0.35" step="0.01">
+      </div>
+      <div class="champ">
+        <label for="cMots">Entre les mots <b id="vMots"></b></label>
+        <input type="range" id="cMots" min="0" max="1.2" step="0.02">
+      </div>
+      <div class="champ">
+        <label for="cPara">Entre les paragraphes <b id="vPara"></b></label>
+        <input type="range" id="cPara" min="0.4" max="4" step="0.1">
+      </div>
+      <div class="champ">
+        <label for="cLargeur">Largeur de la ligne <b id="vLargeur"></b></label>
+        <input type="range" id="cLargeur" min="20" max="90" step="1">
+        <p class="aide">Une ligne courte facilite le retour à la ligne suivante. Autour de 45 caractères convient à la plupart des lecteurs.</p>
+      </div>
+    </div>
+
+    <div class="bloc">
+      <h2>Couleurs</h2>
+      <div class="duo">
+        <div class="champ"><label for="cTexte">Texte</label><input type="color" id="cTexte"></div>
+        <div class="champ"><label for="cFond">Fond</label><input type="color" id="cFond"></div>
+      </div>
+      <div class="papiers" id="papiers" role="group" aria-label="Fonds prêts à l'emploi"></div>
+      <p class="aide">Un fond légèrement teinté réduit l'éblouissement. Chaque enfant a sa teinte : laissez-le choisir.</p>
+    </div>
+
+    <div class="bloc">
+      <h2>Repérage dans le mot</h2>
+      <div class="champ">
+        <label for="cSyllabes">Colorer les syllabes</label>
+        <select id="cSyllabes">
+          <option value="off">Non</option>
+          <option value="classique">Bleu / rouge</option>
+          <option value="douce">Teintes douces</option>
+          <option value="quatre">Quatre couleurs</option>
+        </select>
+        <p class="aide">Découpage automatique, approximatif sur les mots rares : vérifiez avant de le donner à lire.</p>
+      </div>
+      <label class="bascule"><input type="checkbox" id="cMuettes"> Estomper les lettres muettes</label>
+      <label class="bascule"><input type="checkbox" id="cAlt"> Alterner la couleur des phrases</label>
+      <label class="bascule"><input type="checkbox" id="cRegle"> Règle de lecture</label>
+      <p class="aide">La règle suit le doigt ou la souris et masque le reste de la page.</p>
+    </div>
+
+    <div class="bloc">
+      <h2>Voix</h2>
+      <div class="champ">
+        <label for="cVoix">Voix</label>
+        <select id="cVoix"></select>
+      </div>
+      <div class="champ">
+        <label for="cVitesse">Vitesse <b id="vVitesse"></b></label>
+        <input type="range" id="cVitesse" min="0.5" max="1.5" step="0.05">
+      </div>
+      <label class="bascule"><input type="checkbox" id="cSuivre" checked> Suivre le texte pendant la lecture</label>
+    </div>
+
+    <div class="bloc">
+      <h2>Résumé</h2>
+      <label class="bascule"><input type="checkbox" id="cResSync" checked> Même mise en forme que le texte</label>
+      <div id="resReglages" hidden>
+        <div class="champ">
+          <label for="cResPolice">Police</label>
+          <select id="cResPolice"></select>
+        </div>
+        <div class="champ">
+          <label for="cResTaille">Taille <b id="vResTaille"></b></label>
+          <input type="range" id="cResTaille" min="14" max="60" step="1">
+        </div>
+        <div class="duo">
+          <div class="champ"><label for="cResTexte">Texte</label><input type="color" id="cResTexte"></div>
+          <div class="champ"><label for="cResFond">Fond</label><input type="color" id="cResFond"></div>
+        </div>
+      </div>
+      <div class="champ" style="margin-top:12px">
+        <label for="cResLong">Longueur <b id="vResLong"></b></label>
+        <input type="range" id="cResLong" min="1" max="6" step="1">
+      </div>
+    </div>
+
+    <div class="bloc">
+      <h2>Résumé par l'IA</h2>
+      <label class="bascule"><input type="checkbox" id="cIA"> Faire résumer par l'IA</label>
+      <p class="aide" id="aideIA">Le texte est alors envoyé aux serveurs d'Anthropic. À réserver aux documents publiés (manuels, articles) et à éviter pour les productions d'élèves.</p>
+      <div id="reglagesIA" hidden>
+        <div class="champ" style="margin-top:12px">
+          <label for="cCle">Clé d'API</label>
+          <input type="password" id="cCle" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+          <p class="aide">Conservée sur cet appareil uniquement. Ne l'installez pas sur un poste partagé avec les élèves.</p>
+        </div>
+        <div class="champ">
+          <label for="cModele">Modèle</label>
+          <select id="cModele">
+            <option value="claude-haiku-4-5">Haiku 4.5 — rapide et économique</option>
+            <option value="claude-sonnet-5">Sonnet 5 — plus fin</option>
+          </select>
+        </div>
+        <div class="champ">
+          <label for="cNiveau">Niveau de lecture visé</label>
+          <select id="cNiveau">
+            <option value="cp">CP – CE1</option>
+            <option value="ce2">CE2 – CM2</option>
+            <option value="college">Collège</option>
+          </select>
+        </div>
+        <label class="bascule"><input type="checkbox" id="cReform"> Reformuler en mots plus simples</label>
+        <p class="aide">Sans cette option, le résumé reprend les mots du texte d'origine.</p>
+      </div>
+    </div>
+
+    <div class="bloc">
+      <h2>Profils</h2>
+      <div class="champ">
+        <label for="cNomProfil">Enregistrer les réglages sous</label>
+        <input type="text" id="cNomProfil" placeholder="Prénom de l'élève" autocomplete="off">
+      </div>
+      <button class="btn" id="bEnregistrer" style="width:100%;justify-content:center">Enregistrer ce profil</button>
+      <div class="profils" id="listeProfils"></div>
+      <p class="aide" id="aideProfils">Les profils restent sur cet appareil.</p>
+    </div>
+  </aside>
+
+  <!-- ============ SCÈNE DE LECTURE ============ -->
+  <main class="scene" id="scene">
+    <div class="barre">
+      <button class="btn fort" id="bLire" disabled>
+        <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg> <span id="lLire">Lire à voix haute</span>
+      </button>
+      <button class="btn" id="bStop" disabled>
+        <svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg> Arrêter
+      </button>
+      <button class="btn" id="bResumer" disabled>
+        <svg viewBox="0 0 24 24"><path d="M4 6h16"/><path d="M4 12h11"/><path d="M4 18h7"/></svg> Résumer
+      </button>
+      <div class="sep"></div>
+      <span class="etat" id="etat"></span>
+    </div>
+
+    <div class="defile" id="defile">
+      <div class="regle" id="regle" aria-hidden="true"></div>
+
+      <div class="accueil" id="accueil">
+        <div class="demo">Le vieux phare clignotait au bout de la digue.</div>
+        <h1>Prenez un document, il devient lisible.</h1>
+        <p class="intro">Photographiez une page, ouvrez un PDF ou collez un texte. Rien n'est envoyé sur internet : tout reste sur cet appareil.</p>
+        <div class="entrees">
+          <button class="btn" id="bPhoto">
+            <svg viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2l1.6-2h6.8L17 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><circle cx="12" cy="12.5" r="3.4"/></svg> Photographier une page
+          </button>
+          <button class="btn calme" id="bImage">
+            <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="m21 15-5-5L5 20"/></svg> Choisir une image
+          </button>
+          <button class="btn calme" id="bPdf">
+            <svg viewBox="0 0 24 24"><path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7Z"/><path d="M14 2v5h5"/></svg> Ouvrir un PDF
+          </button>
+          <button class="btn calme" id="bColler">
+            <svg viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></svg> Coller ou saisir un texte
+          </button>
+        </div>
+      </div>
+
+      <div id="lecture" hidden></div>
+      <section class="resume" id="resume" hidden>
+        <p class="titre">
+          <span>L'essentiel</span>
+          <span id="resumeSource" style="font-weight:400;opacity:.85"></span>
+          <button class="mini" id="bLireResume">Lire ce résumé</button>
+        </p>
+        <div class="corps" id="resumeCorps"></div>
+        <div class="cles" id="resumeCles"></div>
+      </section>
+    </div>
+
+    <div class="progres" id="progres">
+      <div id="progresTxt">Lecture du document…</div>
+      <div class="jauge"><i id="progresBar"></i></div>
+      <button class="btn" id="bAnnuler">Annuler</button>
+    </div>
+  </main>
+</div>
+
+<dialog id="dlgTexte">
+  <div class="dlg-h">
+    <h3>Corriger le texte</h3>
+    <p>La reconnaissance se trompe sur les accents, les noms propres et les mots coupés. Corrigez ici avant de donner à lire. Une ligne vide sépare deux paragraphes.</p>
+  </div>
+  <textarea id="zoneTexte" spellcheck="true"></textarea>
+  <div class="dlg-f">
+    <button class="btn" id="bDlgAnnuler">Annuler</button>
+    <button class="btn fort" id="bDlgOk">Mettre à jour le texte</button>
+  </div>
+</dialog>
+
+<dialog id="dlgPhoto">
+  <div class="dlg-h">
+    <h3>Préparer l'image</h3>
+    <p>Voici ce que verra la reconnaissance de texte. Cadrez sur le texte seul, redressez si besoin, et vérifiez que les lettres ressortent bien noires sur blanc.</p>
+  </div>
+  <div class="atelier">
+    <div class="apercu" id="apercu">
+      <canvas id="cvApercu"></canvas>
+      <div class="cadre" id="cadre"><i data-c="nw"></i><i data-c="ne"></i><i data-c="se"></i><i data-c="sw"></i></div>
+    </div>
+    <div class="outils">
+      <div class="nav" id="navPhoto">
+        <button class="btn" id="bPrec" aria-label="Image précédente">‹</button>
+        <span id="numPhoto"></span>
+        <button class="btn" id="bSuiv" aria-label="Image suivante">›</button>
+      </div>
+      <button class="btn" id="bTourneG">↺ Tourner à gauche</button>
+      <button class="btn" id="bTourneD">↻ Tourner à droite</button>
+      <button class="btn" id="bToutCadrer">Cadrer toute l'image</button>
+      <div class="champ" style="margin-top:14px">
+        <label for="cSeuil">Netteté du noir et blanc <b id="vSeuil"></b></label>
+        <input type="range" id="cSeuil" min="0.08" max="0.45" step="0.01">
+        <p class="aide">Vers la gauche si des lettres disparaissent, vers la droite si le fond est sale.</p>
+      </div>
+      <label class="bascule"><input type="checkbox" id="cBin" checked> Passer en noir et blanc</label>
+      <label class="bascule"><input type="checkbox" id="cRedresse" checked> Redresser la page</label>
+      <div class="champ" style="margin-top:12px">
+        <label for="cPsm">Disposition du texte</label>
+        <select id="cPsm">
+          <option value="3">Détection automatique</option>
+          <option value="6">Un seul bloc de texte</option>
+          <option value="4">Plusieurs colonnes</option>
+          <option value="11">Mots dispersés (affiche, étiquettes)</option>
+          <option value="7">Une seule ligne</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <div class="dlg-f">
+    <button class="btn" id="bPhotoAnnuler">Annuler</button>
+    <button class="btn fort" id="bPhotoOk">Reconnaître le texte</button>
+  </div>
+</dialog>
+
+<input type="file" id="fPhoto" accept="image/*" capture="environment" multiple hidden>
+<input type="file" id="fImage" accept="image/*" multiple hidden>
+<input type="file" id="fPdf" accept="application/pdf,.pdf" hidden>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1. Stockage — window.storage (aperçu Claude) → localStorage → mémoire
+   ===================================================================== */
+const Store = (() => {
+  const mem = {};
+  const aStorage = typeof window !== 'undefined' && window.storage && typeof window.storage.get === 'function';
+  return {
+    async get(k){
+      try{
+        if(aStorage){ const r = await window.storage.get(k); return r ? r.value : null; }
+        return localStorage.getItem(k);
+      }catch(e){ return k in mem ? mem[k] : null; }
+    },
+    async set(k,v){
+      mem[k]=v;
+      try{
+        if(aStorage){ await window.storage.set(k,v); return true; }
+        localStorage.setItem(k,v); return true;
+      }catch(e){ return false; }
+    },
+    async del(k){
+      delete mem[k];
+      try{
+        if(aStorage){ await window.storage.delete(k); return true; }
+        localStorage.removeItem(k); return true;
+      }catch(e){ return false; }
+    }
+  };
+})();
+
+const $ = s => document.querySelector(s);
+const CLE_REGLAGES = 'lisible:reglages';
+const CLE_PROFILS  = 'lisible:profils';
+
+/* =====================================================================
+   2. Polices
+   ===================================================================== */
+const POLICES = [
+  {nom:'OpenDyslexic', css:"'OpenDyslexic', Verdana, sans-serif", test:null},
+  {nom:'Andika',       css:"'Andika', Verdana, sans-serif",       test:null},
+  {nom:'Luciole',      css:"'Luciole', Verdana, sans-serif",      test:'Luciole'},
+  {nom:'Verdana',      css:"Verdana, Geneva, sans-serif",         test:null},
+  {nom:'Tahoma',       css:"Tahoma, Verdana, sans-serif",         test:null},
+  {nom:'Arial',        css:"Arial, Helvetica, sans-serif",        test:null},
+  {nom:'Trebuchet',    css:"'Trebuchet MS', Verdana, sans-serif", test:null},
+  {nom:'Comic Sans MS',css:"'Comic Sans MS', 'Comic Neue', cursive", test:'Comic Sans MS'},
+  {nom:'Georgia',      css:"Georgia, serif",                      test:null},
+  {nom:'Courier',      css:"'Courier New', monospace",            test:null}
+];
+
+function policeDisponible(nom){
+  try{
+    const cv = document.createElement('canvas').getContext('2d');
+    const echantillon = 'mwiMWI@1lI0O';
+    const mesure = f => { cv.font = '48px ' + f; return cv.measureText(echantillon).width; };
+    const base = mesure('monospace');
+    const test = mesure('"' + nom + '", monospace');
+    if(Math.abs(base - test) > 0.5) return true;
+    const base2 = mesure('sans-serif');
+    const test2 = mesure('"' + nom + '", sans-serif');
+    return Math.abs(base2 - test2) > 0.5;
+  }catch(e){ return false; }
+}
+
+function remplirPolices(select){
+  select.innerHTML = '';
+  POLICES.forEach(p => {
+    if(p.test && !policeDisponible(p.test)) return;
+    const o = document.createElement('option');
+    o.value = p.css; o.textContent = p.nom;
+    select.appendChild(o);
+  });
+}
+
+/* =====================================================================
+   3. Réglages
+   ===================================================================== */
+const DEFAUTS = {
+  police:"'OpenDyslexic', Verdana, sans-serif", taille:26, gras:'400',
+  interligne:2, lettres:0.06, mots:0.32, para:1.4, largeur:46,
+  texte:'#1C1B19', fond:'#FBF6E9',
+  syllabes:'off', muettes:false, alt:false, regle:false,
+  voix:'', vitesse:0.9, suivre:true,
+  resSync:true, resPolice:"'OpenDyslexic', Verdana, sans-serif",
+  resTaille:24, resTexte:'#1C1B19', resFond:'#EAF2F4', resLong:3,
+  ia:false, modele:'claude-haiku-4-5', niveau:'ce2', reformuler:false
+};
+let R = Object.assign({}, DEFAUTS);
+
+const FONDS = [
+  {n:'Crème',     bg:'#FBF6E9', fg:'#1C1B19'},
+  {n:'Sable',     bg:'#F3E7CF', fg:'#241F16'},
+  {n:'Bleu pâle', bg:'#E4EEF5', fg:'#16222B'},
+  {n:'Vert d’eau',bg:'#E4F0E8', fg:'#15251A'},
+  {n:'Rosé',      bg:'#F7E9EC', fg:'#2A1A1E'},
+  {n:'Gris doux', bg:'#E9E9E6', fg:'#1E1E1C'},
+  {n:'Nuit',      bg:'#1E2226', fg:'#E9E4D8'}
+];
+
+const PALETTES = {
+  classique:['#1F5FA8','#C0392B','#1F5FA8','#C0392B'],
+  douce:    ['#2E6B5E','#8A5A2B','#2E6B5E','#8A5A2B'],
+  quatre:   ['#1F5FA8','#C0392B','#2E7D32','#6A1B9A']
+};
+
+function appliquerReglages(){
+  const s = document.documentElement.style;
+  s.setProperty('--f',  R.police);
+  s.setProperty('--fs', R.taille + 'px');
+  s.setProperty('--lh', R.interligne);
+  s.setProperty('--ls', R.lettres + 'em');
+  s.setProperty('--ws', R.mots + 'em');
+  s.setProperty('--pg', R.para + 'em');
+  s.setProperty('--cw', R.largeur + 'ch');
+  s.setProperty('--fg', R.texte);
+  s.setProperty('--bg', R.fond);
+  $('#lecture').style.fontWeight = R.gras;
+
+  const rf  = R.resSync ? R.police : R.resPolice;
+  const rfs = R.resSync ? Math.round(R.taille * 0.9) : R.resTaille;
+  const rfg = R.resSync ? R.texte : R.resTexte;
+  const rbg = R.resSync ? melange(R.fond, R.texte, 0.07) : R.resFond;
+  s.setProperty('--rf', rf);
+  s.setProperty('--rfs', rfs + 'px');
+  s.setProperty('--rfg', rfg);
+  s.setProperty('--rbg', rbg);
+  $('#resumeCorps').style.fontWeight = R.gras;
+
+  const pal = PALETTES[R.syllabes];
+  if(pal){
+    s.setProperty('--syA', pal[0]); s.setProperty('--syB', pal[1]);
+    s.setProperty('--syC', pal[2]); s.setProperty('--syD', pal[3]);
+  }else{
+    ['--syA','--syB','--syC','--syD'].forEach(v => s.setProperty(v,'inherit'));
+  }
+  $('#scene').classList.toggle('regle-on', R.regle);
+  $('#regle').style.height = (R.interligne * 1.12) + 'em';
+  $('#resReglages').hidden = R.resSync;
+  majEtiquettes();
+}
+
+function melange(a,b,t){
+  const h = c => { c=c.replace('#',''); if(c.length===3) c=c.split('').map(x=>x+x).join('');
+    return [parseInt(c.slice(0,2),16),parseInt(c.slice(2,4),16),parseInt(c.slice(4,6),16)]; };
+  const A=h(a), B=h(b);
+  const m = A.map((v,i)=>Math.round(v+(B[i]-v)*t));
+  return '#'+m.map(v=>v.toString(16).padStart(2,'0')).join('');
+}
+
+function majEtiquettes(){
+  $('#vTaille').textContent     = R.taille + ' px';
+  $('#vInterligne').textContent = (+R.interligne).toFixed(2);
+  $('#vLettres').textContent    = (+R.lettres).toFixed(2) + ' em';
+  $('#vMots').textContent       = (+R.mots).toFixed(2) + ' em';
+  $('#vPara').textContent       = (+R.para).toFixed(1) + ' em';
+  $('#vLargeur').textContent    = R.largeur + ' car.';
+  $('#vVitesse').textContent    = (+R.vitesse).toFixed(2) + '×';
+  $('#vResTaille').textContent  = R.resTaille + ' px';
+  $('#vResLong').textContent    = R.resLong + (R.resLong>1 ? ' phrases' : ' phrase');
+}
+
+function versControles(){
+  $('#cPolice').value = R.police;      $('#cTaille').value = R.taille;
+  $('#cGras').value = R.gras;          $('#cInterligne').value = R.interligne;
+  $('#cLettres').value = R.lettres;    $('#cMots').value = R.mots;
+  $('#cPara').value = R.para;          $('#cLargeur').value = R.largeur;
+  $('#cTexte').value = R.texte;        $('#cFond').value = R.fond;
+  $('#cSyllabes').value = R.syllabes;  $('#cMuettes').checked = R.muettes;
+  $('#cAlt').checked = R.alt;          $('#cRegle').checked = R.regle;
+  $('#cVitesse').value = R.vitesse;    $('#cSuivre').checked = R.suivre;
+  $('#cResSync').checked = R.resSync;  $('#cResPolice').value = R.resPolice;
+  $('#cResTaille').value = R.resTaille;$('#cResTexte').value = R.resTexte;
+  $('#cResFond').value = R.resFond;    $('#cResLong').value = R.resLong;
+  $('#cIA').checked = R.ia;            $('#reglagesIA').hidden = !R.ia;
+  $('#cModele').value = R.modele;      $('#cNiveau').value = R.niveau;
+  $('#cReform').checked = R.reformuler;
+  majPastilles();
+}
+
+function majPastilles(){
+  document.querySelectorAll('#papiers button').forEach(b => {
+    b.setAttribute('aria-pressed', String(b.dataset.bg.toLowerCase() === R.fond.toLowerCase()));
+  });
+}
+
+/* =====================================================================
+   4. Découpage du texte : paragraphes, phrases, mots, syllabes
+   ===================================================================== */
+const VOYELLES = 'aáàâäeéèêëiíìîïoóòôöuúùûüyœæ';
+const INSEPARABLES = ['bl','cl','fl','gl','pl','br','cr','dr','fr','gr','pr','tr','vr','ch','ph','th','gn','qu','gu'];
+
+function estVoyelle(c){ return VOYELLES.indexOf(c.toLowerCase()) !== -1; }
+
+/** Découpage syllabique approximatif du français. */
+function syllabes(mot){
+  const bas = mot.toLowerCase();
+  if(mot.length < 4) return [mot];
+
+  // 1. groupes voyelle / consonne
+  const groupes = [];
+  let i = 0;
+  while(i < bas.length){
+    const v = estVoyelle(bas[i]);
+    let j = i;
+    while(j < bas.length && estVoyelle(bas[j]) === v) j++;
+    groupes.push({v, deb:i, fin:j});
+    i = j;
+  }
+  // 2. nasales : une n/m seule après voyelle et non suivie de voyelle rejoint la voyelle
+  for(let k = 0; k < groupes.length - 1; k++){
+    const g = groupes[k], s = groupes[k+1];
+    if(!g.v || s.v) continue;
+    const c = bas.slice(s.deb, s.fin);
+    const suit = groupes[k+2];
+    if((c === 'n' || c === 'm') && (!suit || !suit.v)) { g.fin = s.fin; s.deb = s.fin; }
+  }
+  const gs = groupes.filter(g => g.fin > g.deb);
+
+  // 3. points de coupe
+  const coupes = [];
+  for(let k = 0; k < gs.length; k++){
+    const g = gs[k];
+    if(g.v) continue;
+    const avant = gs[k-1], apres = gs[k+1];
+    if(!avant || !avant.v || !apres || !apres.v) continue; // consonnes initiales ou finales
+    const cons = bas.slice(g.deb, g.fin);
+    if(cons.length === 1){
+      coupes.push(g.deb);                                   // V-CV
+    }else if(cons.length === 2){
+      if(INSEPARABLES.includes(cons)) coupes.push(g.deb);    // V-CCV
+      else coupes.push(g.deb + 1);                           // VC-CV
+    }else{
+      const deux = cons.slice(-2);
+      coupes.push(INSEPARABLES.includes(deux) ? g.fin - 2 : g.fin - 1);
+    }
+  }
+
+  // 4. construction, en refusant les morceaux sans voyelle
+  const parts = [];
+  let deb = 0;
+  coupes.forEach(c => {
+    if(c <= deb || c >= mot.length) return;
+    const bout = bas.slice(deb, c);
+    const reste = bas.slice(c);
+    if(![...bout].some(estVoyelle) || ![...reste].some(estVoyelle)) return;
+    parts.push(mot.slice(deb, c)); deb = c;
+  });
+  parts.push(mot.slice(deb));
+
+  // 5. « e » final muet recollé
+  if(parts.length > 1){
+    const der = parts[parts.length-1].toLowerCase();
+    if(der === 'e' || der === 'es' || der === 'ent'){
+      const f = parts.pop();
+      parts[parts.length-1] += f;
+    }
+  }
+  return parts.filter(Boolean);
+}
+
+const PETITS = new Set(['le','la','les','de','des','du','ce','se','ne','me','te','je','que','une','elle','il','ils','elles','est','et','en','on','ils']);
+const FINALES_SONORES = new Set(['bus','fils','ours','sud','but','net','sept','huit','est','ouest','août','tous','plus','os','as','lis','virus','tennis','mars','sens','fils']);
+
+/** Positions (indices) des lettres muettes probables dans un mot. */
+function lettresMuettes(mot){
+  const bas = mot.toLowerCase();
+  const out = new Set();
+  if(bas.length < 3 || PETITS.has(bas) || FINALES_SONORES.has(bas)) return out;
+  let fin = bas.length;
+  if(/ent$/.test(bas) && bas.length > 4){ out.add(fin-3); out.add(fin-2); out.add(fin-1); fin -= 3; }
+  else{
+    if(/[sxztdpg]$/.test(bas)){ out.add(fin-1); fin -= 1; }
+    if(fin > 2 && bas[fin-1] === 'e' && !/[éèêë]/.test(bas[fin-1])){ out.add(fin-1); fin -= 1; }
+  }
+  if(bas[0] === 'h') out.add(0);
+  return out;
+}
+
+function decouperPhrases(txt){
+  const out = [];
+  const re = /[^.!?…]*[.!?…]+["»”’)\]]*\s*|[^.!?…]+$/g;
+  let m;
+  while((m = re.exec(txt)) !== null){
+    if(m[0].length === 0){ re.lastIndex++; continue; }
+    const t = m[0];
+    if(out.length && /(\b[A-ZÉÈÀ]|\bM|\bMme|\bDr|\betc|\bp|\bfig)\.\s*$/.test(out[out.length-1]) && t.length < 3){
+      out[out.length-1] += t;
+    }else if(t.trim()){
+      out.push(t);
+    }
+  }
+  return out.length ? out : [txt];
+}
+
+function nettoyer(t){
+  t = t.replace(/\r/g, '');
+  t = t.replace(/\u00AD/g, '');
+  t = t.replace(/([a-zà-öø-ÿ])-\n([a-zà-öø-ÿ])/g, '$1$2');   // césures de fin de ligne
+  t = t.replace(/[ \t\u00A0]+/g, ' ');
+  const blocs = t.split(/\n\s*\n+/)
+    .map(b => b.split('\n').map(l => l.trim()).filter(Boolean).join(' ').replace(/\s+/g,' ').trim())
+    .filter(Boolean);
+  return blocs.join('\n\n');
+}
+
+/* =====================================================================
+   5. Rendu du texte
+   ===================================================================== */
+let TEXTE = '';
+let PHRASES = [];   // {texte, el, mots:[{el, deb, fin}]}
+
+function rendre(texte){
+  TEXTE = texte;
+  PHRASES = [];
+  const zone = $('#lecture');
+  zone.innerHTML = '';
+
+  const paras = texte.split(/\n\s*\n+/).filter(p => p.trim());
+  let n = 0;
+  paras.forEach(p => {
+    const pEl = document.createElement('p');
+    decouperPhrases(p).forEach(ph => {
+      const sEl = document.createElement('span');
+      sEl.className = 'ph' + (R.alt && (n % 2) ? ' alt' : '');
+      const mots = [];
+      let pos = 0;
+      ph.split(/(\s+)/).forEach(bout => {
+        if(!bout) return;
+        if(/^\s+$/.test(bout)){ sEl.appendChild(document.createTextNode(bout)); pos += bout.length; return; }
+        const mEl = document.createElement('span');
+        mEl.className = 'mot';
+        habillerMot(mEl, bout);
+        sEl.appendChild(mEl);
+        mots.push({el:mEl, deb:pos, fin:pos + bout.length});
+        pos += bout.length;
+      });
+      pEl.appendChild(sEl);
+      PHRASES.push({texte:ph, el:sEl, mots});
+      n++;
+    });
+    zone.appendChild(pEl);
+  });
+
+  zone.hidden = false;
+  $('#accueil').hidden = true;
+  ['#bLire','#bResumer','#bCorriger','#bImprimer','#bVider'].forEach(s => $(s).disabled = false);
+  $('#etat').textContent = compter(texte);
+}
+
+/** Remplit un span de mot : syllabes colorées et/ou lettres estompées. */
+function habillerMot(el, mot){
+  const noyau = mot.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  const avant = mot.slice(0, mot.indexOf(noyau) === -1 ? 0 : mot.indexOf(noyau));
+  const apres = noyau ? mot.slice(avant.length + noyau.length) : mot;
+
+  if(!noyau || (R.syllabes === 'off' && !R.muettes)){ el.textContent = mot; return; }
+
+  const muettes = R.muettes ? lettresMuettes(noyau) : new Set();
+  const parts = R.syllabes !== 'off' ? syllabes(noyau) : [noyau];
+
+  if(avant) el.appendChild(document.createTextNode(avant));
+  let idx = 0, ns = 0;
+  parts.forEach(part => {
+    const sp = document.createElement('span');
+    if(R.syllabes !== 'off') sp.className = 'syl' + (ns % (R.syllabes === 'quatre' ? 4 : 2));
+    for(const ch of part){
+      if(muettes.has(idx)){
+        const m = document.createElement('span');
+        m.className = 'muet'; m.textContent = ch;
+        sp.appendChild(m);
+      }else{
+        sp.appendChild(document.createTextNode(ch));
+      }
+      idx++;
+    }
+    el.appendChild(sp); ns++;
+  });
+  if(apres) el.appendChild(document.createTextNode(apres));
+}
+
+function compter(t){
+  const mots = (t.match(/[\p{L}\p{N}'’-]+/gu) || []).length;
+  return mots + ' mots · ' + PHRASES.length + ' phrases';
+}
+
+/* =====================================================================
+   6. Résumé extractif (aucun réseau)
+   ===================================================================== */
+const VIDES = new Set(('le la les un une des du de d au aux à a et ou où mais donc or ni car que qui quoi dont ce cet cette ces son sa ses leur leurs mon ma mes ton ta tes notre nos votre vos il elle ils elles on nous vous je tu me te se lui y en est sont était étaient être avoir eu ont a as ai avait avaient sera seront fait faire dit dire plus moins très bien tout tous toute toutes aussi comme dans sur sous par pour avec sans entre vers chez depuis pendant après avant alors ainsi cela ceci celui celle ceux si ne pas plus jamais toujours peu beaucoup autre autres même mêmes quand puis ensuite enfin encore déjà lors selon afin').split(' '));
+
+const sansAccent = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function resumer(texte, nb){
+  const phrases = [];
+  texte.split(/\n\s*\n+/).forEach(p => decouperPhrases(p).forEach(x => {
+    const t = x.trim();
+    if(t.split(/\s+/).length >= 4) phrases.push(t);
+  }));
+  if(phrases.length <= nb) return {phrases, cles:motsCles(texte)};
+
+  const freq = {};
+  phrases.forEach(p => {
+    (p.match(/[\p{L}'’-]{3,}/gu) || []).forEach(m => {
+      const k = sansAccent(m);
+      if(VIDES.has(k)) return;
+      freq[k] = (freq[k] || 0) + 1;
+    });
+  });
+  const max = Math.max(1, ...Object.values(freq));
+
+  const notes = phrases.map((p, i) => {
+    const mots = (p.match(/[\p{L}'’-]{3,}/gu) || []).map(sansAccent).filter(m => !VIDES.has(m));
+    if(!mots.length) return {i, n:0};
+    let s = mots.reduce((a, m) => a + (freq[m] || 0) / max, 0) / Math.pow(mots.length, 0.75);
+    if(i === 0) s *= 1.35;                       // la première phrase pose souvent le sujet
+    else if(i < 3) s *= 1.1;
+    const l = p.split(/\s+/).length;
+    if(l < 7 || l > 45) s *= 0.75;               // ni trop courte ni interminable
+    return {i, n:s};
+  });
+
+  const choisies = notes.sort((a,b) => b.n - a.n).slice(0, nb).sort((a,b) => a.i - b.i);
+  return {phrases: choisies.map(c => phrases[c.i]), cles: motsCles(texte)};
+}
+
+function motsCles(texte){
+  const freq = {}, forme = {};
+  (texte.match(/[\p{L}'’-]{4,}/gu) || []).forEach(m => {
+    const k = sansAccent(m);
+    if(VIDES.has(k)) return;
+    freq[k] = (freq[k] || 0) + 1;
+    if(!forme[k] || m.length < forme[k].length) forme[k] = m.toLowerCase();
+  });
+  return Object.entries(freq).sort((a,b) => b[1] - a[1]).slice(0, 6)
+    .filter(e => e[1] > 1).map(e => forme[e[0]]);
+}
+
+/* ---- Résumé par l'IA (clé apportée par l'utilisateur) ---- */
+const CLE_API = 'lisible:cle';
+let CLE = '';
+
+const NIVEAUX = {
+  cp:      {qui:'un enfant de 6 à 7 ans qui apprend encore à déchiffrer', mots:10},
+  ce2:     {qui:'un élève de 8 à 10 ans', mots:14},
+  college: {qui:'un élève de collège en difficulté de lecture', mots:20}
+};
+
+async function resumerIA(texte, nb){
+  const n = NIVEAUX[R.niveau] || NIVEAUX.ce2;
+  const consigne = R.reformuler
+    ? 'Reformule avec des mots plus simples et plus courants que ceux du texte.'
+    : 'Reprends autant que possible les mots du texte d’origine, sans les remplacer par des synonymes.';
+
+  const invite = [
+    'Tu aides un enseignant spécialisé à rendre un texte accessible à un élève dyslexique.',
+    'Résume le texte ci-dessous en ' + nb + ' phrase' + (nb > 1 ? 's' : '') + ' au maximum, destinées à ' + n.qui + '.',
+    'Règles : une seule idée par phrase ; ' + n.mots + ' mots par phrase au maximum ; voix active ; pas de subordonnées enchaînées ; pas de pronom dont on ne sait pas à qui il renvoie. ' + consigne,
+    'Donne aussi jusqu’à six mots-clés du texte, au singulier et en minuscules.',
+    'Réponds uniquement par un objet JSON, sans commentaire ni balises de code, de la forme : {"resume":["…"],"mots":["…"]}',
+    '',
+    'Texte :',
+    texte.slice(0, 12000)
+  ].join('\n');
+
+  const entetes = {
+    'content-type': 'application/json',
+    'anthropic-version': '2023-06-01',
+    'anthropic-dangerous-direct-browser-access': 'true'
+  };
+  if(CLE) entetes['x-api-key'] = CLE;
+
+  const rep = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers: entetes,
+    body: JSON.stringify({
+      model: R.modele,
+      max_tokens: 1000,
+      messages:[{role:'user', content: invite}]
+    })
+  });
+
+  if(!rep.ok){
+    let d = '';
+    try{ const j = await rep.json(); d = j.error && j.error.message ? j.error.message : ''; }catch(e){}
+    if(rep.status === 401) throw new Error('Clé d’API refusée. Vérifiez-la dans les réglages.' + (d ? '\n' + d : ''));
+    if(rep.status === 429) throw new Error('Trop de demandes ou crédit épuisé. Réessayez plus tard.');
+    throw new Error('Le service a répondu ' + rep.status + (d ? ' : ' + d : ''));
+  }
+
+  const data = await rep.json();
+  const brut = (data.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+  const propre = brut.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  let obj;
+  try{ obj = JSON.parse(propre); }
+  catch(e){
+    const i = propre.indexOf('{'), j = propre.lastIndexOf('}');
+    if(i === -1 || j === -1) throw new Error('Réponse inattendue du modèle.');
+    obj = JSON.parse(propre.slice(i, j + 1));
+  }
+  const phrases = (obj.resume || []).filter(p => typeof p === 'string' && p.trim());
+  if(!phrases.length) throw new Error('Le modèle n’a renvoyé aucun résumé.');
+  return {phrases, cles:(obj.mots || []).filter(m => typeof m === 'string').slice(0, 6)};
+}
+
+function peindreResume(phrases, cles, source){
+  const corps = $('#resumeCorps');
+  corps.innerHTML = '';
+  phrases.forEach(p => {
+    const el = document.createElement('p');
+    String(p).trim().split(/(\s+)/).forEach(bout => {
+      if(!bout) return;
+      if(/^\s+$/.test(bout)){ el.appendChild(document.createTextNode(bout)); return; }
+      const m = document.createElement('span');
+      m.className = 'mot';
+      habillerMot(m, bout);
+      el.appendChild(m);
+    });
+    corps.appendChild(el);
+  });
+  const zc = $('#resumeCles');
+  zc.innerHTML = '';
+  (cles || []).forEach(c => { const s = document.createElement('span'); s.textContent = c; zc.appendChild(s); });
+  $('#resumeSource').textContent = source;
+  $('#resume').hidden = false;
+}
+
+async function afficherResume(){
+  if(!TEXTE) return;
+  const b = $('#bResumer');
+
+  if(!R.ia){
+    const {phrases, cles} = resumer(TEXTE, R.resLong);
+    peindreResume(phrases, cles, 'phrases-clés du texte');
+    $('#resume').scrollIntoView({behavior:'smooth', block:'start'});
+    return;
+  }
+
+  b.disabled = true;
+  $('#etat').textContent = 'Résumé en cours…';
+  try{
+    const {phrases, cles} = await resumerIA(TEXTE, R.resLong);
+    peindreResume(phrases, cles, R.reformuler ? 'reformulé par l’IA' : 'résumé par l’IA');
+    $('#etat').textContent = compter(TEXTE);
+  }catch(e){
+    const {phrases, cles} = resumer(TEXTE, R.resLong);
+    peindreResume(phrases, cles, 'phrases-clés du texte, l’IA ayant échoué');
+    $('#etat').textContent = compter(TEXTE);
+    alert('Le résumé par l’IA n’a pas abouti :\n' + e.message + '\n\nLe résumé local a été affiché à la place.');
+  }finally{
+    b.disabled = false;
+    $('#resume').scrollIntoView({behavior:'smooth', block:'start'});
+  }
+}
+
+/* =====================================================================
+   7. Lecture à voix haute
+   ===================================================================== */
+const Voix = {
+  liste:[], file:[], idx:0, actif:false, pause:false, cible:'texte',
+
+  charger(){
+    this.liste = speechSynthesis.getVoices().filter(v => /^fr/i.test(v.lang));
+    const sel = $('#cVoix');
+    const garde = R.voix;
+    sel.innerHTML = '';
+    if(!this.liste.length){
+      sel.innerHTML = '<option>Aucune voix française installée</option>';
+      return;
+    }
+    this.liste.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.name; o.textContent = v.name.replace(/\s*\(.*\)$/, '');
+      sel.appendChild(o);
+    });
+    if(garde && this.liste.some(v => v.name === garde)) sel.value = garde;
+    else R.voix = sel.value;
+  },
+
+  decouper(t){
+    // 200 caractères max : au-delà, certaines voix coupent la lecture
+    if(t.length <= 200) return [t];
+    const bouts = []; let cur = '';
+    t.split(/\s+/).forEach(w => {
+      if(cur && (cur + ' ' + w).length > 200){ bouts.push(cur.trim()); cur = w; }
+      else cur = cur ? cur + ' ' + w : w;
+      if(/[,;:]$/.test(cur) && cur.length > 120){ bouts.push(cur.trim()); cur = ''; }
+    });
+    if(cur.trim()) bouts.push(cur.trim());
+    return bouts;
+  },
+
+  lire(cible){
+    this.arreter();
+    this.cible = cible;
+    this.file = [];
+    if(cible === 'texte'){
+      PHRASES.forEach((p, i) => this.decouper(p.texte.trim())
+        .forEach(t => this.file.push({texte:t, phrase:i})));
+    }else{
+      const t = $('#resumeCorps').innerText.trim();
+      this.decouper(t).forEach(x => this.file.push({texte:x, phrase:-1}));
+    }
+    if(!this.file.length) return;
+    this.idx = 0; this.actif = true; this.pause = false;
+    majBoutonsVoix();
+    this.suivant();
+  },
+
+  suivant(){
+    if(!this.actif || this.idx >= this.file.length){ this.arreter(); return; }
+    const item = this.file[this.idx];
+    const u = new SpeechSynthesisUtterance(item.texte);
+    const v = this.liste.find(x => x.name === R.voix);
+    if(v) u.voice = v;
+    u.lang = v ? v.lang : 'fr-FR';
+    u.rate = +R.vitesse;
+    u.pitch = 1;
+
+    if(item.phrase >= 0){
+      const ph = PHRASES[item.phrase];
+      ph.el.classList.add('dite');
+      if(R.suivre) glisserVers(ph.el);
+      u.onboundary = e => {
+        if(e.name && e.name !== 'word') return;
+        const ci = e.charIndex || 0;
+        ph.mots.forEach(m => m.el.classList.remove('dit'));
+        const m = ph.mots.find(m => ci >= m.deb && ci < m.fin) ||
+                  ph.mots.filter(m => m.deb <= ci).pop();
+        if(m) m.el.classList.add('dit');
+      };
+      u.onend = () => {
+        const fini = this.idx + 1 >= this.file.length || this.file[this.idx+1].phrase !== item.phrase;
+        if(fini){ ph.el.classList.remove('dite'); ph.mots.forEach(m => m.el.classList.remove('dit')); }
+        this.idx++; this.suivant();
+      };
+    }else{
+      u.onend = () => { this.idx++; this.suivant(); };
+    }
+    u.onerror = () => { this.idx++; this.suivant(); };
+    speechSynthesis.speak(u);
+  },
+
+  basculer(){
+    if(!this.actif) return;
+    if(this.pause){ speechSynthesis.resume(); this.pause = false; }
+    else { speechSynthesis.pause(); this.pause = true; }
+    majBoutonsVoix();
+  },
+
+  arreter(){
+    this.actif = false; this.pause = false;
+    try{ speechSynthesis.cancel(); }catch(e){}
+    document.querySelectorAll('.ph.dite').forEach(e => e.classList.remove('dite'));
+    document.querySelectorAll('.mot.dit').forEach(e => e.classList.remove('dit'));
+    majBoutonsVoix();
+  }
+};
+
+function glisserVers(el){
+  const zone = $('#defile');
+  const r = el.getBoundingClientRect(), z = zone.getBoundingClientRect();
+  if(r.top < z.top + 80 || r.bottom > z.bottom - 120){
+    zone.scrollBy({top: r.top - z.top - z.height * 0.32, behavior:'smooth'});
+  }
+}
+
+function majBoutonsVoix(){
+  const l = $('#bLire'), s = $('#bStop');
+  s.disabled = !Voix.actif;
+  l.classList.toggle('actif', Voix.actif && !Voix.pause);
+  $('#lLire').textContent = !Voix.actif ? 'Lire à voix haute' : (Voix.pause ? 'Reprendre' : 'Mettre en pause');
+}
+
+/* =====================================================================
+   8. Import : PDF, images, OCR
+   ===================================================================== */
+let annule = false;
+
+function progres(on, txt, pct){
+  const p = $('#progres');
+  p.classList.toggle('on', on);
+  if(txt !== undefined) $('#progresTxt').textContent = txt;
+  $('#progresBar').style.width = (pct === undefined ? 0 : Math.round(pct * 100)) + '%';
+  if(on) annule = false;
+}
+
+function scriptExterne(src){
+  return new Promise((ok, ko) => {
+    const s = document.createElement('script');
+    s.src = src; s.onload = ok;
+    s.onerror = () => ko(new Error('Chargement impossible : ' + src));
+    document.head.appendChild(s);
+  });
+}
+
+/* ---- Prétraitement de l'image (le vrai facteur de réussite de l'OCR) ---- */
+const OCRP = {seuil:0.25, binariser:true, redresser:true, psm:'3'};
+
+function chargerImage(file){
+  return new Promise((ok, ko) => {
+    const i = new Image();
+    i.onload = () => ok(i);
+    i.onerror = () => ko(new Error('Image illisible'));
+    i.src = URL.createObjectURL(file);
+  });
+}
+
+/** Dessine une source dans un canvas, à l'échelle et avec une rotation de 0/90/180/270°. */
+function versCanvas(src, maxLong, rot){
+  const w0 = src.width || src.naturalWidth, h0 = src.height || src.naturalHeight;
+  const f = Math.min(1, maxLong / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * f)), h = Math.max(1, Math.round(h0 * f));
+  const droit = (rot % 180) === 0;
+  const c = document.createElement('canvas');
+  c.width = droit ? w : h; c.height = droit ? h : w;
+  const x = c.getContext('2d', {willReadFrequently:true});
+  x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.translate(c.width / 2, c.height / 2);
+  x.rotate(rot * Math.PI / 180);
+  x.drawImage(src, -w / 2, -h / 2, w, h);
+  return c;
+}
+
+function rogner(cv, crop){
+  if(!crop || (crop.x <= 0.002 && crop.y <= 0.002 && crop.w >= 0.996 && crop.h >= 0.996)) return cv;
+  const x = Math.round(crop.x * cv.width),  y = Math.round(crop.y * cv.height);
+  const w = Math.max(16, Math.round(crop.w * cv.width)), h = Math.max(16, Math.round(crop.h * cv.height));
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d', {willReadFrequently:true}).drawImage(cv, x, y, w, h, 0, 0, w, h);
+  return c;
+}
+
+/** Moyenne locale par fenêtre carrée, séparable et en somme glissante : O(n). */
+function moyenneLocale(src, w, h, r){
+  const tmp = new Float32Array(w * h), out = new Float32Array(w * h);
+  for(let y = 0; y < h; y++){
+    const o = y * w;
+    let s = 0, n = 0;
+    for(let x = 0; x <= r && x < w; x++){ s += src[o + x]; n++; }
+    for(let x = 0; x < w; x++){
+      tmp[o + x] = s / n;
+      const aj = x + r + 1, re = x - r;
+      if(aj < w){ s += src[o + aj]; n++; }
+      if(re >= 0){ s -= src[o + re]; n--; }
+    }
+  }
+  for(let x = 0; x < w; x++){
+    let s = 0, n = 0;
+    for(let y = 0; y <= r && y < h; y++){ s += tmp[y * w + x]; n++; }
+    for(let y = 0; y < h; y++){
+      out[y * w + x] = s / n;
+      const aj = y + r + 1, re = y - r;
+      if(aj < h){ s += tmp[aj * w + x]; n++; }
+      if(re >= 0){ s -= tmp[re * w + x]; n--; }
+    }
+  }
+  return out;
+}
+
+/** Inclinaison de la page, par variance des projections horizontales cisaillées. */
+function inclinaison(gris, w, h){
+  const f = Math.min(1, 640 / w);
+  const sw = Math.max(8, Math.round(w * f)), sh = Math.max(8, Math.round(h * f));
+  const pt = new Float32Array(sw * sh);
+  let som = 0;
+  for(let y = 0; y < sh; y++){
+    const sy = Math.min(h - 1, Math.round(y / f));
+    for(let x = 0; x < sw; x++){
+      const v = gris[sy * w + Math.min(w - 1, Math.round(x / f))];
+      pt[y * sw + x] = v; som += v;
+    }
+  }
+  const moy = som / (sw * sh);
+  const bin = new Uint8Array(sw * sh);
+  for(let i = 0; i < bin.length; i++) bin[i] = pt[i] < moy - 14 ? 1 : 0;
+
+  const note = a => {
+    const t = Math.tan(a * Math.PI / 180);
+    const marge = Math.ceil(Math.abs(t) * sw) + 2;
+    const proj = new Float64Array(sh + marge * 2);
+    for(let y = 0; y < sh; y++){
+      const o = y * sw;
+      for(let x = 0; x < sw; x++){
+        if(!bin[o + x]) continue;
+        const yy = y + Math.round(t * x) + marge;
+        if(yy >= 0 && yy < proj.length) proj[yy]++;
+      }
+    }
+    let s = 0;
+    for(let i = 0; i < proj.length; i++) s += proj[i] * proj[i];
+    return s;
+  };
+
+  let meilleur = 0, score = -1;
+  for(let a = -6; a <= 6.001; a += 0.4){
+    const s = note(a);
+    if(s > score){ score = s; meilleur = a; }
+  }
+  for(let a = meilleur - 0.4; a <= meilleur + 0.401; a += 0.1){
+    const s = note(a);
+    if(s > score){ score = s; meilleur = a; }
+  }
+  // Angle de correction : c'est déjà le cisaillement qui remet les lignes à plat.
+  return meilleur;
+}
+
+function tourner(cv, deg){
+  const rad = deg * Math.PI / 180;
+  const c = document.createElement('canvas');
+  c.width = cv.width; c.height = cv.height;
+  const x = c.getContext('2d', {willReadFrequently:true});
+  x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+  x.translate(c.width / 2, c.height / 2);
+  x.rotate(rad);
+  x.drawImage(cv, -cv.width / 2, -cv.height / 2);
+  return c;
+}
+
+/**
+ * Nettoie une image photographiée : niveaux de gris, redressement,
+ * puis seuillage local façon Sauvola — c'est lui qui absorbe les ombres.
+ */
+function pretraiter(source, maxLong){
+  let cv = source instanceof HTMLCanvasElement ? source : versCanvas(source, maxLong, 0);
+  if(cv.width * cv.height > maxLong * maxLong) cv = versCanvas(cv, maxLong, 0);
+
+  let ctx = cv.getContext('2d', {willReadFrequently:true});
+  let d = ctx.getImageData(0, 0, cv.width, cv.height);
+  let w = cv.width, h = cv.height, n = w * h;
+  let gris = new Float32Array(n);
+  for(let i = 0; i < n; i++){
+    const j = i * 4;
+    gris[i] = 0.299 * d.data[j] + 0.587 * d.data[j+1] + 0.114 * d.data[j+2];
+  }
+
+  if(OCRP.redresser){
+    const a = inclinaison(gris, w, h);
+    if(Math.abs(a) > 0.3){
+      cv = tourner(cv, a);
+      ctx = cv.getContext('2d', {willReadFrequently:true});
+      d = ctx.getImageData(0, 0, cv.width, cv.height);
+      w = cv.width; h = cv.height; n = w * h;
+      gris = new Float32Array(n);
+      for(let i = 0; i < n; i++){
+        const j = i * 4;
+        gris[i] = 0.299 * d.data[j] + 0.587 * d.data[j+1] + 0.114 * d.data[j+2];
+      }
+    }
+  }
+
+  if(!OCRP.binariser){
+    let mn = 255, mx = 0;
+    for(let i = 0; i < n; i++){ if(gris[i] < mn) mn = gris[i]; if(gris[i] > mx) mx = gris[i]; }
+    const e = Math.max(1, mx - mn);
+    for(let i = 0; i < n; i++){
+      const v = Math.max(0, Math.min(255, (gris[i] - mn) * 255 / e));
+      const j = i * 4;
+      d.data[j] = d.data[j+1] = d.data[j+2] = v; d.data[j+3] = 255;
+    }
+    ctx.putImageData(d, 0, 0);
+    return cv;
+  }
+
+  const r = Math.max(6, Math.min(45, Math.round(w / 45)));
+  const carres = new Float32Array(n);
+  for(let i = 0; i < n; i++) carres[i] = gris[i] * gris[i];
+  const m  = moyenneLocale(gris, w, h, r);
+  const m2 = moyenneLocale(carres, w, h, r);
+  const k = OCRP.seuil;
+  for(let i = 0; i < n; i++){
+    const mo = m[i];
+    const ec = Math.sqrt(Math.max(0, m2[i] - mo * mo));
+    const T = mo * (1 + k * (ec / 128 - 1));
+    const v = gris[i] < T ? 0 : 255;
+    const j = i * 4;
+    d.data[j] = d.data[j+1] = d.data[j+2] = v; d.data[j+3] = 255;
+  }
+  ctx.putImageData(d, 0, 0);
+  return cv;
+}
+
+function pretraiterSur(source, maxLong){
+  try{ return pretraiter(source, maxLong); }
+  catch(e){
+    try{ return pretraiter(source, Math.round(maxLong * 0.6)); }
+    catch(e2){ return source instanceof HTMLCanvasElement ? source : versCanvas(source, maxLong, 0); }
+  }
+}
+
+/* ---- Atelier : cadrage et réglages avant reconnaissance ---- */
+const Atelier = {
+  items:[], idx:0, calcul:null,
+
+  async ouvrir(fichiers){
+    progres(true, 'Ouverture des images…');
+    this.items = [];
+    for(const f of fichiers){
+      try{ this.items.push({img: await chargerImage(f), rot:0, crop:{x:0,y:0,w:1,h:1}}); }catch(e){}
+    }
+    progres(false);
+    if(!this.items.length){ alert('Ces fichiers n’ont pas pu être ouverts comme images.'); return; }
+    this.idx = 0;
+    $('#cSeuil').value = OCRP.seuil; $('#vSeuil').textContent = (+OCRP.seuil).toFixed(2);
+    $('#cBin').checked = OCRP.binariser;
+    $('#cRedresse').checked = OCRP.redresser;
+    $('#cPsm').value = OCRP.psm;
+    $('#navPhoto').style.display = this.items.length > 1 ? 'flex' : 'none';
+    $('#dlgPhoto').showModal();
+    this.dessiner();
+  },
+
+  item(){ return this.items[this.idx]; },
+
+  dessiner(){
+    const it = this.item();
+    if(!it) return;
+    $('#numPhoto').textContent = (this.idx + 1) + ' / ' + this.items.length;
+    clearTimeout(this.calcul);
+    this.calcul = setTimeout(() => {
+      const base = versCanvas(it.img, 900, it.rot);
+      const vue = pretraiterSur(base, 900);
+      const cv = $('#cvApercu');
+      cv.width = vue.width; cv.height = vue.height;
+      cv.getContext('2d').drawImage(vue, 0, 0);
+      this.cadre();
+    }, 40);
+  },
+
+  cadre(){
+    const c = this.item().crop, el = $('#cadre');
+    el.style.left = (c.x * 100) + '%';
+    el.style.top = (c.y * 100) + '%';
+    el.style.width = (c.w * 100) + '%';
+    el.style.height = (c.h * 100) + '%';
+  },
+
+  async reconnaitre(){
+    $('#dlgPhoto').close();
+    try{
+      const w = await ocrWorker();
+      await w.setParameters({
+        tessedit_pageseg_mode: String(OCRP.psm),
+        user_defined_dpi: '300',
+        preserve_interword_spaces: '1'
+      });
+      const morceaux = [];
+      for(let i = 0; i < this.items.length; i++){
+        if(annule) return;
+        const it = this.items[i];
+        progres(true, 'Préparation de l’image ' + (i+1) + ' sur ' + this.items.length + '…', 0);
+        await new Promise(r => setTimeout(r, 20));
+        const prete = pretraiterSur(rogner(versCanvas(it.img, 2200, it.rot), it.crop), 2200);
+        if(annule) return;
+        progres(true, 'Reconnaissance de l’image ' + (i+1) + ' sur ' + this.items.length + '…', 0);
+        const {data} = await w.recognize(prete);
+        morceaux.push(data.text || '');
+      }
+      progres(false);
+      const t = nettoyer(morceaux.join('\n\n'));
+      if(!t.trim()){
+        alert('Aucun texte reconnu.\n\nReprenez la photo bien à plat, page entière dans le cadre, sans ombre portée, puis recadrez sur le texte seul.');
+        return;
+      }
+      rendre(t);
+      ouvrirCorrection();
+    }catch(e){
+      progres(false);
+      alert('La reconnaissance n’a pas pu aboutir.\n' + e.message);
+    }
+  }
+};
+
+function brancherCadre(){
+  const zone = $('#apercu');
+  let mode = null, dep = null, depart = null;
+  const pos = e => {
+    const r = zone.getBoundingClientRect();
+    return {x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+            y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height))};
+  };
+  zone.addEventListener('pointerdown', e => {
+    const it = Atelier.item(); if(!it) return;
+    zone.setPointerCapture(e.pointerId);
+    const p = pos(e), c = it.crop;
+    const r = zone.getBoundingClientRect();
+    const pres = (cx, cy) => Math.hypot((p.x - cx) * r.width, (p.y - cy) * r.height) < 26;
+    if(pres(c.x, c.y)) mode = 'nw';
+    else if(pres(c.x + c.w, c.y)) mode = 'ne';
+    else if(pres(c.x + c.w, c.y + c.h)) mode = 'se';
+    else if(pres(c.x, c.y + c.h)) mode = 'sw';
+    else if(p.x > c.x && p.x < c.x + c.w && p.y > c.y && p.y < c.y + c.h) mode = 'move';
+    else mode = 'new';
+    dep = p; depart = Object.assign({}, c);
+    if(mode === 'new'){ it.crop = {x:p.x, y:p.y, w:0.001, h:0.001}; depart = Object.assign({}, it.crop); mode = 'se'; }
+    Atelier.cadre();
+    e.preventDefault();
+  });
+  zone.addEventListener('pointermove', e => {
+    if(!mode) return;
+    const it = Atelier.item(); const p = pos(e);
+    const dx = p.x - dep.x, dy = p.y - dep.y;
+    let {x, y, w, h} = depart;
+    if(mode === 'move'){
+      x = Math.max(0, Math.min(1 - w, x + dx));
+      y = Math.max(0, Math.min(1 - h, y + dy));
+    }else{
+      let x1 = x, y1 = y, x2 = x + w, y2 = y + h;
+      if(mode.includes('w')) x1 = p.x; else x2 = p.x;
+      if(mode.includes('n')) y1 = p.y; else y2 = p.y;
+      x = Math.min(x1, x2); y = Math.min(y1, y2);
+      w = Math.abs(x2 - x1); h = Math.abs(y2 - y1);
+    }
+    it.crop = {x, y, w: Math.max(0.03, w), h: Math.max(0.03, h)};
+    Atelier.cadre();
+  });
+  const fin = () => { mode = null; };
+  zone.addEventListener('pointerup', fin);
+  zone.addEventListener('pointercancel', fin);
+}
+
+let _tess = null;
+async function ocrWorker(){
+  if(_tess) return _tess;
+  if(!window.Tesseract){
+    progres(true, 'Préparation de la reconnaissance de texte…');
+    await scriptExterne('https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js');
+  }
+  _tess = await window.Tesseract.createWorker('fra', 1, {
+    logger: m => {
+      if(m.status === 'recognizing text') progres(true, 'Lecture de l’image…', m.progress);
+      else if(m.status && /load|initializ|download/i.test(m.status)) progres(true, 'Préparation du français…', m.progress);
+    }
+  });
+  return _tess;
+}
+
+async function lirePdf(fichier){
+  try{
+    progres(true, 'Ouverture du PDF…', 0);
+    const pdfjs = await import('https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs';
+    const buf = await fichier.arrayBuffer();
+    const doc = await pdfjs.getDocument({data: buf}).promise;
+
+    const pages = [];
+    for(let n = 1; n <= doc.numPages; n++){
+      if(annule) return;
+      progres(true, 'Page ' + n + ' sur ' + doc.numPages + '…', n / doc.numPages);
+      const page = await doc.getPage(n);
+      const c = await page.getTextContent();
+      let last = null, txt = '';
+      c.items.forEach(it => {
+        if(!('str' in it)) return;
+        if(last && Math.abs(last[5] - it.transform[5]) > 3) txt += '\n';
+        txt += it.str;
+        if(it.hasEOL) txt += '\n';
+        last = it.transform;
+      });
+      pages.push({n, txt, page});
+    }
+
+    const total = pages.reduce((a, p) => a + p.txt.replace(/\s/g,'').length, 0);
+    const scanne = total < 40 * doc.numPages;
+
+    if(scanne){
+      progres(true, 'Ce PDF est une image : reconnaissance en cours…', 0);
+      const w = await ocrWorker();
+      await w.setParameters({tessedit_pageseg_mode:'3', user_defined_dpi:'300', preserve_interword_spaces:'1'});
+      for(const p of pages){
+        if(annule) return;
+        progres(true, 'Reconnaissance page ' + p.n + ' sur ' + doc.numPages + '…', 0);
+        const vp = p.page.getViewport({scale:2});
+        const cv = document.createElement('canvas');
+        cv.width = vp.width; cv.height = vp.height;
+        await p.page.render({canvasContext: cv.getContext('2d'), viewport: vp, canvas: cv}).promise;
+        const {data} = await w.recognize(pretraiterSur(cv, 2200));
+        p.txt = data.text || '';
+      }
+    }
+
+    progres(false);
+    const t = nettoyer(pages.map(p => p.txt).join('\n\n'));
+    if(!t.trim()){ alert('Aucun texte n’a pu être extrait de ce PDF.'); return; }
+    rendre(t);
+    if(scanne) ouvrirCorrection();
+  }catch(e){
+    progres(false);
+    alert('Ce PDF n’a pas pu être ouvert.\n' + e.message);
+  }
+}
+
+/* =====================================================================
+   9. Correction du texte
+   ===================================================================== */
+function ouvrirCorrection(){
+  $('#zoneTexte').value = TEXTE;
+  $('#dlgTexte').showModal();
+}
+
+/* =====================================================================
+   10. Profils
+   ===================================================================== */
+async function chargerProfils(){
+  let d = {};
+  try{ d = JSON.parse(await Store.get(CLE_PROFILS) || '{}'); }catch(e){ d = {}; }
+  const zone = $('#listeProfils');
+  zone.innerHTML = '';
+  const noms = Object.keys(d).sort((a,b) => a.localeCompare(b,'fr'));
+  noms.forEach(nom => {
+    const l = document.createElement('div'); l.className = 'profil';
+    const b = document.createElement('button');
+    b.className = 'nom'; b.textContent = nom;
+    b.onclick = () => { R = Object.assign({}, DEFAUTS, d[nom]); versControles(); appliquerReglages(); if(TEXTE) rendre(TEXTE); sauverReglages(); };
+    const s = document.createElement('button');
+    s.className = 'sup'; s.textContent = '×';
+    s.setAttribute('aria-label', 'Supprimer le profil ' + nom);
+    s.onclick = async () => { if(confirm('Supprimer le profil « ' + nom + ' » ?')){ delete d[nom]; await Store.set(CLE_PROFILS, JSON.stringify(d)); chargerProfils(); } };
+    l.append(b, s); zone.appendChild(l);
+  });
+  if(!noms.length) zone.innerHTML = '<p class="aide" style="margin:0">Aucun profil pour l’instant.</p>';
+}
+
+async function sauverReglages(){ await Store.set(CLE_REGLAGES, JSON.stringify(R)); }
+
+/* =====================================================================
+   11. Branchements
+   ===================================================================== */
+function lier(id, prop, type){
+  const el = $(id);
+  const ev = (type === 'range' || type === 'color') ? 'input' : 'change';
+  el.addEventListener(ev, () => {
+    R[prop] = type === 'check' ? el.checked : (type === 'num' || type === 'range') ? +el.value : el.value;
+    appliquerReglages();
+    if(['syllabes','muettes','alt'].includes(prop) && TEXTE){
+      rendre(TEXTE);
+      if(!$('#resume').hidden) afficherResume();
+    }
+    if(['resLong','niveau','reformuler'].includes(prop) && !$('#resume').hidden && !R.ia) afficherResume();
+    sauverReglages();
+  });
+}
+
+function init(){
+  remplirPolices($('#cPolice'));
+  remplirPolices($('#cResPolice'));
+
+  const zp = $('#papiers');
+  FONDS.forEach(f => {
+    const b = document.createElement('button');
+    b.dataset.bg = f.bg;
+    b.style.background = f.bg;
+    b.title = f.n; b.setAttribute('aria-label', 'Fond ' + f.n);
+    b.onclick = () => {
+      R.fond = f.bg; R.texte = f.fg;
+      $('#cFond').value = f.bg; $('#cTexte').value = f.fg;
+      appliquerReglages(); majPastilles(); sauverReglages();
+    };
+    zp.appendChild(b);
+  });
+
+  lier('#cPolice','police','sel');      lier('#cTaille','taille','range');
+  lier('#cGras','gras','sel');          lier('#cInterligne','interligne','range');
+  lier('#cLettres','lettres','range');  lier('#cMots','mots','range');
+  lier('#cPara','para','range');        lier('#cLargeur','largeur','range');
+  lier('#cTexte','texte','color');      lier('#cFond','fond','color');
+  lier('#cSyllabes','syllabes','sel');  lier('#cMuettes','muettes','check');
+  lier('#cAlt','alt','check');          lier('#cRegle','regle','check');
+  lier('#cVoix','voix','sel');          lier('#cVitesse','vitesse','range');
+  lier('#cSuivre','suivre','check');    lier('#cResSync','resSync','check');
+  lier('#cResPolice','resPolice','sel');lier('#cResTaille','resTaille','range');
+  lier('#cResTexte','resTexte','color');lier('#cResFond','resFond','color');
+  lier('#cResLong','resLong','range');
+  lier('#cModele','modele','sel');
+  lier('#cNiveau','niveau','sel');
+  lier('#cReform','reformuler','check');
+
+  $('#cIA').addEventListener('change', e => {
+    R.ia = e.target.checked;
+    $('#reglagesIA').hidden = !R.ia;
+    sauverReglages();
+    if(R.ia && !CLE && !$('#cCle').value) $('#cCle').focus();
+  });
+  $('#cCle').addEventListener('change', async e => {
+    CLE = e.target.value.trim();
+    const ok = await Store.set(CLE_API, CLE);
+    $('#aideIA').textContent = ok
+      ? 'Le texte est envoyé aux serveurs d’Anthropic. À réserver aux documents publiés, à éviter pour les productions d’élèves.'
+      : 'Clé prise en compte pour cette session seulement : cet appareil n’autorise pas l’enregistrement.';
+  });
+
+  $('#cFond').addEventListener('input', majPastilles);
+
+  // import
+  $('#bPhoto').onclick  = () => $('#fPhoto').click();
+  $('#bImage').onclick  = () => $('#fImage').click();
+  $('#bPdf').onclick    = () => $('#fPdf').click();
+  $('#bColler').onclick = () => { $('#zoneTexte').value = ''; $('#dlgTexte').showModal(); $('#zoneTexte').focus(); };
+  $('#fPhoto').onchange = e => { if(e.target.files.length) Atelier.ouvrir([...e.target.files]); e.target.value = ''; };
+  $('#fImage').onchange = e => { if(e.target.files.length) Atelier.ouvrir([...e.target.files]); e.target.value = ''; };
+  $('#fPdf').onchange   = e => { if(e.target.files[0]) lirePdf(e.target.files[0]); e.target.value = ''; };
+  $('#bAnnuler').onclick = () => { annule = true; progres(false); };
+
+  // glisser-déposer
+  ['dragover','drop'].forEach(t => document.addEventListener(t, e => e.preventDefault()));
+  document.addEventListener('drop', e => {
+    const f = [...(e.dataTransfer?.files || [])];
+    if(!f.length) return;
+    if(f[0].type === 'application/pdf') lirePdf(f[0]);
+    else if(/^image\//.test(f[0].type)) Atelier.ouvrir(f.filter(x => /^image\//.test(x.type)));
+  });
+
+  // atelier photo
+  brancherCadre();
+  $('#bPrec').onclick = () => { Atelier.idx = (Atelier.idx - 1 + Atelier.items.length) % Atelier.items.length; Atelier.dessiner(); };
+  $('#bSuiv').onclick = () => { Atelier.idx = (Atelier.idx + 1) % Atelier.items.length; Atelier.dessiner(); };
+  $('#bTourneG').onclick = () => { const it = Atelier.item(); it.rot = (it.rot + 270) % 360; it.crop = {x:0,y:0,w:1,h:1}; Atelier.dessiner(); };
+  $('#bTourneD').onclick = () => { const it = Atelier.item(); it.rot = (it.rot + 90) % 360; it.crop = {x:0,y:0,w:1,h:1}; Atelier.dessiner(); };
+  $('#bToutCadrer').onclick = () => { Atelier.item().crop = {x:0,y:0,w:1,h:1}; Atelier.cadre(); };
+  $('#cSeuil').oninput = e => { OCRP.seuil = +e.target.value; $('#vSeuil').textContent = (+OCRP.seuil).toFixed(2); Atelier.dessiner(); };
+  $('#cBin').onchange = e => { OCRP.binariser = e.target.checked; Atelier.dessiner(); };
+  $('#cRedresse').onchange = e => { OCRP.redresser = e.target.checked; Atelier.dessiner(); };
+  $('#cPsm').onchange = e => { OCRP.psm = e.target.value; };
+  $('#bPhotoAnnuler').onclick = () => $('#dlgPhoto').close();
+  $('#bPhotoOk').onclick = () => Atelier.reconnaitre();
+
+  // correction
+  $('#bCorriger').onclick = ouvrirCorrection;
+  $('#bDlgAnnuler').onclick = () => $('#dlgTexte').close();
+  $('#bDlgOk').onclick = () => {
+    const t = nettoyer($('#zoneTexte').value);
+    $('#dlgTexte').close();
+    if(!t.trim()) return;
+    Voix.arreter();
+    rendre(t);
+    if(!$('#resume').hidden) afficherResume();
+  };
+
+  // actions
+  $('#bLire').onclick = () => { if(Voix.actif) Voix.basculer(); else Voix.lire('texte'); };
+  $('#bStop').onclick = () => Voix.arreter();
+  $('#bLireResume').onclick = () => Voix.lire('resume');
+  $('#bResumer').onclick = afficherResume;
+  $('#bImprimer').onclick = () => window.print();
+  $('#bVider').onclick = () => {
+    if(!confirm('Effacer ce texte et revenir à l’écran d’accueil ?')) return;
+    Voix.arreter();
+    TEXTE = ''; PHRASES = [];
+    $('#lecture').innerHTML = ''; $('#lecture').hidden = true;
+    $('#resume').hidden = true; $('#accueil').hidden = false;
+    $('#etat').textContent = '';
+    ['#bLire','#bResumer','#bCorriger','#bImprimer','#bVider'].forEach(s => $(s).disabled = true);
+  };
+
+  // volet mobile
+  $('#bVolet').onclick = () => $('#rail').classList.toggle('ouvert');
+  $('#defile').addEventListener('pointerdown', () => $('#rail').classList.remove('ouvert'));
+
+  // règle de lecture
+  const suivreRegle = e => {
+    if(!R.regle) return;
+    const z = $('#defile').getBoundingClientRect();
+    const h = $('#regle').offsetHeight;
+    const y = (e.touches ? e.touches[0].clientY : e.clientY) - z.top + $('#defile').scrollTop;
+    $('#regle').style.top = Math.max(0, y - h / 2) + 'px';
+  };
+  $('#defile').addEventListener('pointermove', suivreRegle);
+  $('#defile').addEventListener('touchmove', suivreRegle, {passive:true});
+
+  // profils
+  $('#bEnregistrer').onclick = async () => {
+    const nom = $('#cNomProfil').value.trim();
+    if(!nom){ $('#cNomProfil').focus(); return; }
+    let d = {};
+    try{ d = JSON.parse(await Store.get(CLE_PROFILS) || '{}'); }catch(e){}
+    d[nom] = Object.assign({}, R);
+    const ok = await Store.set(CLE_PROFILS, JSON.stringify(d));
+    $('#cNomProfil').value = '';
+    if(!ok) $('#aideProfils').textContent = 'Enregistrement impossible sur cet appareil : les profils seront perdus en fermant l’onglet.';
+    chargerProfils();
+  };
+
+  // voix
+  Voix.charger();
+  speechSynthesis.onvoiceschanged = () => Voix.charger();
+  if(!('speechSynthesis' in window)){
+    $('#bLire').disabled = true;
+    $('#bLire').title = 'Ce navigateur ne propose pas de synthèse vocale.';
+  }
+
+  // clavier
+  document.addEventListener('keydown', e => {
+    if(e.target.matches('input,textarea,select')) return;
+    if(e.code === 'Space' && TEXTE){ e.preventDefault(); Voix.actif ? Voix.basculer() : Voix.lire('texte'); }
+    if(e.key === 'Escape') Voix.arreter();
+  });
+
+  window.addEventListener('beforeunload', () => { try{ speechSynthesis.cancel(); }catch(e){} });
+}
+
+(async function demarrer(){
+  try{
+    const s = await Store.get(CLE_REGLAGES);
+    if(s) R = Object.assign({}, DEFAUTS, JSON.parse(s));
+  }catch(e){}
+  try{ CLE = (await Store.get(CLE_API)) || ''; }catch(e){ CLE = ''; }
+  init();
+  versControles();
+  $('#cCle').value = CLE;
+  appliquerReglages();
+  chargerProfils();
+})();
+</script>
+</body>
+</html>
